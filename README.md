@@ -259,10 +259,9 @@ enabled = 0
 | `disable_due_inactivity_time`                 |          | `0` [s]            | DialPad is automatically disabled when no event received for this interval<br><br>decimal numbers allowed (e.g. `60.0` [s] is one minute, `0` set up by default disables this functionality)
 | `touchpad_disables_dialpad`                    |          | `1`            | when Touchpad is disabled DialPad is disabled aswell
 | **Layout**                                |          |
-| `activation_time`              |          | `1.0` [seconds]             | amount of time you have to hold `top_right_icon`
 | `slices_count`              |          | `1.0` [seconds]             | number of slices in the circle considered as steps when moving with finger around
-| **Top right icon**                            |          |                   | send `numlock` key and activate/deactivate NumberPad<br><br>activating/deactivating touch has to start over icon area declared by `top_right_icon_width` and `top_right_icon_height` for amout of time in `activation_time` or NumberPad is activated/deactivated with slide function from this icon to center and removed, moving atleast as far as specified by the ratios of touchpad width > `top_right_icon_slide_func_activation_radius` and height > `top_right_icon_slide_func_activation_radius` |
-| `top_right_icon_slide_func_activation_radius`|          | `1200` [px]         | minimum radius of slide
+| **Top right icon**                            |          |                   |
+| `activation_time`              |          | `1.0` [seconds]             | amount of time you have to hold `top_right_icon`
 
 ## Similar existing
 
