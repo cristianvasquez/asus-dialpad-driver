@@ -587,9 +587,9 @@ def listen_touchpad_events():
                     distance = math.sqrt(dx**2 + dy**2)
                     angle = (math.atan2(dy, dx) * 180 / math.pi) % 360
 
-                    if distance <= circle_radius:
+                    if distance <= circle_radius and dialpad:
                         #log.info("Distance: %f, Center button radius: %f", distance, center_button_radius)
-                        if distance < center_button_radius:  # Center button area
+                        if distance < center_button_radius and dialpad:  # Center button area
                             # Only trigger if it has not been triggered already in this touch cycle
                             if not center_button_triggered:
                                 log.debug("Touch detected in center button area.")
