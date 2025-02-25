@@ -259,6 +259,7 @@ enabled = 0
 | `touchpad_disables_dialpad`                    |          | `1`            | when Touchpad is disabled DialPad is disabled aswell
 | **Layout**                                |          |
 | `slices_count`              |          | `1.0` [seconds]             | number of slices in the circle considered as steps when moving with finger around
+| `suppress_app_specifics_shortcuts`              |          | `0`             | app specific shortcuts are ignored when is specific window with app opened
 | **Top right icon**                            |          |                   |
 | `activation_time`              |          | `1.0` [seconds]             | amount of time you have to hold `top_right_icon`
 

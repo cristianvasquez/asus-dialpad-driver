@@ -183,6 +183,8 @@ CONFIG_TOUCHPAD_DISABLES_DIALPAD = "touchpad_disables_dialpad"
 CONFIG_TOUCHPAD_DISABLES_DIALPAD_DEFAULT = True
 CONFIG_ACTIVATION_TIME = "activation_time"
 CONFIG_ACTIVATION_TIME_DEFAULT = True
+CONFIG_SUPPRESS_APP_SPECIFICS_SHORTCUTS = "config_supress_app_specifics_shortcuts"
+CONFIG_SUPPRESS_APP_SPECIFICS_SHORTCUTS_DEFAULT = "config_supress_app_specifics_shortcuts_default"
 
 config_file_path = config_file_dir + CONFIG_FILE_NAME
 config = configparser.ConfigParser()
@@ -277,6 +279,7 @@ def load_all_config_values():
     global activation_time
     global config_lock
     global slices_count
+    global suppress_app_specifics_shortcuts
 
     #log.debug("load_all_config_values: config_lock.acquire will be called")
     config_lock.acquire()
@@ -289,12 +292,12 @@ def load_all_config_values():
     activation_time = float(config_get(CONFIG_ACTIVATION_TIME, CONFIG_ACTIVATION_TIME_DEFAULT))
     enabled = config_get(CONFIG_ENABLED, CONFIG_ENABLED_DEFAULT)
     slices_count = int(config_get(CONFIG_SLICES_COUNT, CONFIG_SLICES_COUNT_DEFAULT))
+    suppress_app_specifics_shortcuts = int(config_get(CONFIG_SUPPRESS_APP_SPECIFICS_SHORTCUTS, CONFIG_SUPPRESS_APP_SPECIFICS_SHORTCUTS_DEFAULT))
 
     config_lock.release()
 
     if enabled is not dialpad:
         toggle_top_right_icon(dialpad)
-
 
 def send_value_to_touchpad_via_i2c(value):
     global device_id, device_addr
@@ -371,7 +374,6 @@ def get_active_window_title():
             log.error("Error retrieving active window title (X11): %s", e)
             return None
     else:
-
         kde_title = get_active_window_kde_wayland_title()
         if kde_title:
             return kde_title
@@ -385,6 +387,8 @@ def get_active_window_title():
 
 # Function to emulate shortcuts based on the current app
 def emulate_shortcuts(touch_input):
+    global suppress_app_specifics_shortcuts
+
     # Get the active window title
     window_title = get_active_window_title()
 
@@ -394,7 +398,7 @@ def emulate_shortcuts(touch_input):
         app_name = next((app for app in app_shortcuts if app in window_title.lower()), None)
 
     # Use app-specific shortcuts if found; otherwise, fall back to default shortcuts
-    shortcuts = app_shortcuts[app_name] if app_name else app_shortcuts["none"]
+    shortcuts = app_shortcuts[app_name] if app_name and not suppress_app_specifics_shortcuts else app_shortcuts["none"]
 
     # Get the shortcut for the given touch input
     shortcut = shortcuts.get(touch_input, None)
