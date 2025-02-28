@@ -171,19 +171,19 @@ Layouts below are named by laptop models, but the name is not important. What is
 
 ### FAQ ###
 
-**How to start NumberPad without systemd service?**
+**How to start dialpad without systemd service?**
 
-- layout name is required as first argument and as second argument can be optionally passed path to directory where will be autocreated config `numberpad_dev` (default is current working directory):
+- layout name is required as first argument and as second argument can be optionally passed path to directory where will be autocreated config `dialpad_dev` (default is current working directory):
 
 ```
-/usr/share/asus-numberpad-driver/.env/bin/python3 /usr/share/asus-numberpad-driver/numberpad.py <up5401ea|e210ma|..>
+/usr/share/asus-dialpad-driver/.env/bin/python3 /usr/share/asus-dialpad-driver/dialpad.py <up5401ea|e210ma|..>
 ```
 
 **How to install the driver when is used pyenv for managing multiple Python versions?**
 
 ```
-$ git clone https://github.com/asus-linux-drivers/asus-numberpad-driver
-$ cd asus-numberpad-driver
+$ git clone https://github.com/asus-linux-drivers/asus-dialpad-driver
+$ cd asus-dialpad-driver
 
 $ # pyenv install Ubuntu 22.04
 $ apt install -y make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev xz-utils tk-dev libffi-dev liblzma-dev python3-openssl git
@@ -210,7 +210,7 @@ $ pyenv global system
 sed -i "s/enabled = 0/enabled = 1/g" dialpad_dev
 sed -i "s/enabled = 0/enabled = 1/g" /usr/share/asus-dialpad-driver/dialpad_dev
 # disabling
-sed -i "s/enabled = 1/enabled = 0/g" numberpad_dev
+sed -i "s/enabled = 1/enabled = 0/g" dialpad_dev
 sed -i "s/enabled = 1/enabled = 0/g" /usr/share/asus-dialpad-driver/dialpad_dev
 ```
 
@@ -241,7 +241,7 @@ Please enter your choice
 
 ### Configuration file
 
-Attributes which do not depend on a specific Numpad keyboard can be changed according to the table below in the config `numberpad_dev` in the installed driver location `/usr/share/asus-numberpad-driver`. See the example below showing the default attibutes:
+Attributes which do not depend on a specific Dialpad keyboard can be changed according to the table below in the config `dialpad_dev` in the installed driver location `/usr/share/asus-dialpad-driver`. See the example below showing the default attibutes:
 
 ```
 [main]
