@@ -171,7 +171,7 @@ Layouts below are named by laptop models, but the name is not important. What is
 
 ### FAQ ###
 
-**How to start dialpad without systemd service?**
+**How to start DialPad without systemd service?**
 
 - layout name is required as first argument and as second argument can be optionally passed path to directory where will be autocreated config `dialpad_dev` (default is current working directory):
 
@@ -241,7 +241,7 @@ Please enter your choice
 
 ### Configuration file
 
-Attributes which do not depend on a specific Dialpad keyboard can be changed according to the table below in the config `dialpad_dev` in the installed driver location `/usr/share/asus-dialpad-driver`. See the example below showing the default attibutes:
+Attributes which do not depend on a specific DialPad keyboard can be changed according to the table below in the config `dialpad_dev` in the installed driver location `/usr/share/asus-dialpad-driver`. See the example below showing the default attibutes:
 
 ```
 [main]
