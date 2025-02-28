@@ -184,7 +184,7 @@ CONFIG_TOUCHPAD_DISABLES_DIALPAD_DEFAULT = True
 CONFIG_ACTIVATION_TIME = "activation_time"
 CONFIG_ACTIVATION_TIME_DEFAULT = True
 CONFIG_SUPPRESS_APP_SPECIFICS_SHORTCUTS = "config_supress_app_specifics_shortcuts"
-CONFIG_SUPPRESS_APP_SPECIFICS_SHORTCUTS_DEFAULT = "config_supress_app_specifics_shortcuts_default"
+CONFIG_SUPPRESS_APP_SPECIFICS_SHORTCUTS_DEFAULT = False
 
 config_file_path = config_file_dir + CONFIG_FILE_NAME
 config = configparser.ConfigParser()
