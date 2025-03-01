@@ -504,6 +504,96 @@ def check_dialpad_automatical_disable_or_idle_due_inactivity():
 
         sleep(1)
 
+
+gsettings_failure_count = 0
+gsettings_max_failure_count = 3
+
+qdbus_failure_count = 0
+qdbus_max_failure_count = 3
+
+getting_device_via_xinput_status_failure_count = 0
+getting_device_via_xinput_status_max_failure_count = 3
+
+getting_device_via_synclient_status_failure_count = 0
+getting_device_via_synclient_status_max_failure_count = 3
+
+def qdbusSet(value):
+    global qdbus_failure_count, qdbus_max_failure_count, touchpad
+
+    if qdbus_failure_count < qdbus_max_failure_count:
+        try:
+            cmd = [
+                'qdbus',
+                'org.kde.KWin',
+                f'/org/kde/KWin/InputDevice/event{touchpad}',
+                'org.kde.KWin.InputDevice.sendEvents',
+                str(value)
+            ]
+            subprocess.call(cmd)
+        except Exception as e:
+            log.debug(e, exc_info=True)
+            qdbus_failure_count+=1
+    else:
+        log.debug('Qdbus failed more than: "%s" so is not trying anymore', qdbus_max_failure_count)
+
+def qdbusSetTouchpadSendEvents(value):
+    qdbusSet(value)
+
+def gsettingsSet(path, name, value):
+    global gsettings_failure_count, gsettings_max_failure_count
+
+    if gsettings_failure_count < gsettings_max_failure_count:
+        try:
+            sudo_user = os.environ.get('SUDO_USER')
+            if sudo_user is not None:
+                cmd = ['runuser', '-u', sudo_user, 'gsettings', 'set', path, name, str(value)]
+            else:
+                cmd = ['gsettings', 'set', path, name, str(value)]
+
+            log.debug(cmd)
+            subprocess.call(cmd)
+        except Exception as e:
+            log.debug(e, exc_info=True)
+            gsettings_failure_count+=1
+    else:
+        log.debug('Gsettings failed more than: "%s" so is not trying anymore', gsettings_max_failure_count)
+
+def gsettingsSetTouchpadSendEvents(value):
+    gsettingsSet('org.gnome.desktop.peripherals.touchpad', 'send-events', 'enabled' if value else 'disabled')
+
+def set_touchpad_prop_send_events(value):
+    global touchpad_name, gsettings_failure_count, gsettings_max_failure_count, qdbus_max_failure_count, qdbus_failure_count, getting_device_via_xinput_status_failure_count, getting_device_via_xinput_status_max_failure_count, getting_device_via_synclient_status_failure_count, getting_device_via_synclient_status_max_failure_count
+
+    # 1. priority - gsettings (gnome) or qdbus (kde)
+    if gsettings_failure_count < gsettings_max_failure_count:
+        gsettingsSetTouchpadSendEvents(value)
+    if qdbus_failure_count < qdbus_max_failure_count:
+        qdbusSetTouchpadSendEvents(value)
+
+    # 2. priority - xinput
+    if getting_device_via_xinput_status_failure_count > getting_device_via_xinput_status_max_failure_count:
+        log.debug('Setting libinput Send Events via xinput failed more than: "%s" times so is not trying anymore', getting_device_via_xinput_status_max_failure_count)
+    else:
+        try:
+            cmd = ["xinput", "enable" if value else "disable", touchpad_name]
+            log.debug(cmd)
+            subprocess.call(cmd)
+            return
+        except:
+            getting_device_via_xinput_status_failure_count+=1
+            log.error('Setting libinput Send Events via xinput failed')
+
+    # 3. priority - synclient
+    if getting_device_via_synclient_status_failure_count > getting_device_via_synclient_status_max_failure_count:
+        log.debug('Setting libinput Send Events via synclient failed more than: "%s" times so is not trying anymore', getting_device_via_xinput_status_max_failure_count)
+    try:
+        cmd = ["synclient", "TouchpadOff=" + str(value)]
+        log.debug(cmd)
+        subprocess.call(cmd)
+        return
+    except:
+        getting_device_via_synclient_status_failure_count+=1
+
 def listen_touchpad_events():
     global slices_count, activation_time, last_event_time, dialpad
 
@@ -531,6 +621,7 @@ def listen_touchpad_events():
             icon_activated = False  # Track if the icon has already been activated during this touch
             last_slice = None  # Track the last active slice in the circle
             center_button_triggered = False
+            tap_disabled = False  # Track tap-to-click status
 
             for event in d_t.events():
 
@@ -555,6 +646,10 @@ def listen_touchpad_events():
                         # Reset touch coordinates
                         touch_x, touch_y = None, None
                         center_button_triggered = False
+                        # Re-enable tap-to-click
+                        if tap_disabled:
+                            set_touchpad_prop_send_events(1)
+                            tap_disabled = False
 
                 # Detect touch positions
                 if event.matches(EV_ABS.ABS_MT_POSITION_X):
@@ -592,6 +687,12 @@ def listen_touchpad_events():
                     angle = (math.atan2(dy, dx) * 180 / math.pi) % 360
 
                     if distance <= circle_radius and dialpad:
+
+                        # Disable tap-to-click
+                        if not tap_disabled:
+                            set_touchpad_prop_send_events(0)
+                            tap_disabled = True
+
                         #log.info("Distance: %f, Center button radius: %f", distance, center_button_radius)
                         if distance < center_button_radius and dialpad:  # Center button area
                             # Only trigger if it has not been triggered already in this touch cycle
