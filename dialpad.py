@@ -8,6 +8,8 @@ import threading
 from time import sleep, time
 import Xlib.display
 import Xlib.X
+import Xlib.XK
+from xkbcommon import xkb
 from libevdev import EV_ABS, EV_KEY, EV_LED, EV_MSC, EV_SYN, Device, InputEvent, const, device
 from pyinotify import WatchManager, IN_CLOSE_WRITE, IN_IGNORED, IN_MOVED_TO, AsyncNotifier
 from smbus2 import SMBus, i2c_msg
@@ -18,6 +20,10 @@ from pywayland.client import Display
 from pywayland.protocol.wayland import WlSeat
 import subprocess
 import configparser
+import ast
+from xkbcommon import xkb
+import signal
+import mmap
 
 # Logging setup
 logging.basicConfig(
@@ -34,17 +40,26 @@ if not xdg_session_type:
 
 # Setup display for X11
 display = None
+display_var = None
 display_wayland = None
+display_wayland_var = None
+keymap_loaded = False
+listening_touchpad_events_started = False
+active_modifiers = set()
+modifiers = set()
+
 if xdg_session_type == "x11":
     try:
-        display = Xlib.display.Display(os.environ.get('DISPLAY'))
+        display_var = os.environ.get('DISPLAY')
+        display = Xlib.display.Display(display_var)
         log.info("X11 session detected and connected.")
     except Exception as e:
         log.error(f"Failed to connect to X11 display: {e}")
         sys.exit(1)
 else:
     try:
-        display_wayland = Display(os.environ.get('WAYLAND_DISPLAY'))
+        display_wayland_var = os.environ.get('WAYLAND_DISPLAY')
+        display_wayland = Display(display_wayland_var)
         display_wayland.connect()
         log.info("Wayland session detected and connected.")
     except Exception as e:
@@ -86,7 +101,9 @@ app_shortcuts = getattr(model_layout, "app_shortcuts", {})
 touchpad: Optional[str] = None
 touchpad_name: Optional[str] = None
 device_id: Optional[str] = None
+keyboard_device_id: Optional[str] = None
 device_addr: Optional[int] = None
+keyboard: Optional[str] = None
 
 # Constants
 try_times = 5
@@ -96,6 +113,7 @@ try_sleep = 0.1
 while try_times > 0:
 
     touchpad_detected = 0
+    keyboard_detected = 0
 
     with open('/proc/bus/input/devices', 'r') as f:
         lines = f.readlines()
@@ -130,6 +148,18 @@ while try_times > 0:
                     touchpad_detected = 2
                     log.info('Set touchpad id %s from %s', touchpad, line.strip())
 
+            # Look for the keyboard
+            if keyboard_detected == 0 and ("Name=\"AT Translated Set 2 keyboard" in line or (("Name=\"ASUE" in line or "Name=\"Asus" in line or "Name=\"ASUP" in line or "Name=\"ASUF" in line) and "Keyboard" in line)):
+                keyboard_detected = 1
+                log.info(
+                    'Detecting keyboard from string: \"%s\"', line.strip())
+
+            # We look for keyboard
+            if keyboard_detected == 1 and "H: " in line:
+                keyboard = line.split("event")[1]
+                keyboard = keyboard.split(" ")[0]
+                keyboard_detected = 2
+
               # Do not stop looking if touchpad and keyboard have been found
             # because more drivers can be installed
             # https://github.com/mohamed-badaoui/asus-touchpad-numpad-driver/issues/87
@@ -137,13 +167,16 @@ while try_times > 0:
             #if touchpad_detected == 2 and keyboard_detected == 2:
             #    break
 
-    if touchpad_detected != 2:
+    if touchpad_detected != 2 or keyboard_detected != 2:
         try_times -= 1
         if try_times == 0:
             with open('/proc/bus/input/devices', 'r') as f:
                 lines = f.readlines()
                 for line in lines:
                     log.error(line)
+            if keyboard_detected != 2:
+                log.error("Can't find keyboard (code: %s)", keyboard_detected)
+                # keyboard is optional, no sys.exit(1)!
             if touchpad_detected != 2:
                 log.error("Can't find touchpad (code: %s)", touchpad_detected)
                 sys.exit(1)
@@ -311,7 +344,7 @@ def send_value_to_touchpad_via_i2c(value):
         log.error('Error during sending via i2c: \"%s\"', e)
 
 def initialize_virtual_device():
-    global uinput_device, dev
+    global uinput_device, dev, modifiers
 
     try:
         # Create the virtual device
@@ -320,8 +353,22 @@ def initialize_virtual_device():
 
         # Enable all keys from the configuration
         for shortcuts in app_shortcuts.values():
-            for action, config in shortcuts.items():
-                dev.enable(config["key"])
+            for action, configs in shortcuts.items():
+                if not isinstance(configs, list):
+                    configs = [configs]  # Ensure consistency with list-based structure
+
+                for config in configs:
+                    field = config["key"]
+
+                    if not isEvent(field) and not isEventList(field):
+                        set_evdev_key_for_char(field, '')
+                    if isEvent(field):
+                        enable_key(field)
+
+                    # Also enable any modifiers defined in the shortcut
+                    if "modifier" in config:
+                        modifier = config["modifier"]
+                        modifiers.add(modifier)
 
         # Create the uinput device
         uinput_device = dev.create_uinput_device()
@@ -385,13 +432,14 @@ def get_active_window_title():
     log.error("Unsupported session type or display not connected.")
     return None
 
-def emulate_shortcuts(touch_input, event_code):
+def emulate_shortcuts(touch_input, event_code, active_modifiers):
     global suppress_app_specifics_shortcuts
 
     # Get the active window title
     window_title = get_active_window_title()
 
     # Determine the app configuration based on the window title
+    #log.info(app_shortcuts)
     app_name = None
     if window_title:
         app_name = next((app for app in app_shortcuts if app in window_title.lower()), None)
@@ -399,24 +447,34 @@ def emulate_shortcuts(touch_input, event_code):
     # Use app-specific shortcuts if found; otherwise, fall back to default shortcuts
     shortcuts = app_shortcuts[app_name] if app_name and not suppress_app_specifics_shortcuts else app_shortcuts["none"]
 
-    # Get the shortcut for the given touch input
-    shortcut = shortcuts.get(touch_input, None)
+    # Find a shortcut that matches both touch_input and active modifier(s)
+    matched_shortcuts = shortcuts.get(touch_input, [])
 
-    if shortcut:
+    # Ensure matched_shortcuts is always a list
+    if not isinstance(matched_shortcuts, list):
+        matched_shortcuts = [matched_shortcuts]
+
+    # Prioritize shortcuts that have a modifier
+    prioritized_shortcuts = sorted(matched_shortcuts, key=lambda s: "modifier" not in s)
+
+    for shortcut in prioritized_shortcuts:
         key_code = shortcut["key"]
-        trigger_mode = shortcut.get("trigger", "release")  # Load trigger mode per shortcut
+        trigger_mode = shortcut.get("trigger", "release")
+        modifier = shortcut.get("modifier")
 
-        if trigger_mode == "immediate" and event_code:
-            send_key_event(key_code, press=True)
-            send_key_event(key_code, press=False)
-        if trigger_mode == "release" and not event_code:
-            send_key_event(key_code, press=True)
-            send_key_event(key_code, press=False)
+        # Check if modifiers match, prioritizing ones with modifiers
+        if (modifier and modifier in active_modifiers) or (not modifier and not any(active_modifiers)):
+            if trigger_mode == "immediate" and event_code:
+                send_key_event(key_code, press=True)
+                send_key_event(key_code, press=False)
+            elif trigger_mode == "release" and not event_code:
+                send_key_event(key_code, press=True)
+                send_key_event(key_code, press=False)
 
-        log.info(f"Executing shortcut for {'default' if not app_name else app_name}: {key_code.name} with trigger mode: {trigger_mode}")
-    else:
-        log.info(f"No shortcut mapped for touch input: {touch_input} in {'default' if not app_name else app_name}")
+            log.info(f"Executing shortcut for {app_name if app_name else 'default'}: {key_code.name} with modifiers {modifier} and keyboard active modifiers {active_modifiers}")
+            return  # Stop after executing the first valid shortcut
 
+    log.info(f"No shortcut mapped for touch input: {touch_input} and keyboard active modifiers {active_modifiers}")
 
 def send_key_event(key_code, press=True):
     global uinput_device
@@ -600,7 +658,7 @@ def set_touchpad_prop_send_events(value):
         getting_device_via_synclient_status_failure_count+=1
 
 def listen_touchpad_events():
-    global slices_count, activation_time, last_event_time, dialpad
+    global slices_count, activation_time, last_event_time, dialpad, active_modifiers
 
     try:
 
@@ -652,7 +710,7 @@ def listen_touchpad_events():
                         touch_x, touch_y = None, None
 
                         if center_button_triggered:
-                            emulate_shortcuts("center", event.value)
+                            emulate_shortcuts("center", event.value, active_modifiers)
                             center_button_triggered = False
                         # Re-enable tap-to-click
                         if tap_disabled:
@@ -707,7 +765,7 @@ def listen_touchpad_events():
                             if not center_button_triggered:
                                 log.debug("Touch detected in center button area.")
                                 # Trigger the center button shortcut
-                                emulate_shortcuts("center", event.value)
+                                emulate_shortcuts("center", event.value, active_modifiers)
                                 center_button_triggered = True  # Set flag to indicate the button has been pressed
                                 icon_activated = True  # Ensure it only triggers once per touch
                         else:
@@ -724,7 +782,7 @@ def listen_touchpad_events():
                                     direction = "clockwise" if (current_slice - last_slice) % slices_count == 1 else "counterclockwise"
                                     log.debug(f"Detected circular motion: {direction}")
                                     # Trigger rotation logic based on the direction
-                                    emulate_shortcuts(direction, event.value)
+                                    emulate_shortcuts(direction, event.value, active_modifiers)
                                 last_slice = current_slice
                     else:
                         pass
@@ -757,6 +815,349 @@ def check_config_values_changes():
             break
 
     log.info("check_config_values_changes: inotify watching config file ended")
+
+
+def gsettingsGet(path, name):
+    global gsettings_failure_count, gsettings_max_failure_count
+
+    if gsettings_failure_count < gsettings_max_failure_count:
+        try:
+            cmd = ['gsettings', 'get', path, name]
+            result = subprocess.check_output(cmd).rstrip()
+            return result
+        except Exception as e:
+            log.debug(e, exc_info=True)
+            gsettings_failure_count+=1
+    else:
+        log.debug('Gsettings failed more then: \"%s\" so is not try anymore', gsettings_max_failure_count)
+
+udev = None
+threads = []
+stop_threads = False
+enabled_evdev_keys = []
+
+# only to avoid first - x11 only
+gnome_current_layout = None
+# only to avoid first - x11 even wayland (e.g. Ubuntu 22.04)
+gnome_current_layout_index = None
+keysym_name_associated_to_evdev_key_reflecting_current_layout = None
+
+
+def mod_name_to_specific_keysym_name(mod_name):
+    global display_wayland
+
+    mod_to_specific_keysym_name = {
+        'Control': 'Control_L',
+        'Shift': 'Shift_L',
+        'Lock': 'Caps_Lock',
+        'Mod1': 'Alt_L',
+        'Mod2': 'Num_Lock',
+        'Mod3': 'Caps_Lock',
+        'Mod4': 'Meta_L',
+        'Mod5': 'Scroll_Lock',
+        'NumLock': 'Num_Lock',
+        'Alt': 'Alt_L',
+        'LevelThree': 'ISO_Level3_Shift',
+        'LAlt': 'Alt_L',
+        'RAlt': 'Alt_R',
+        'RControl': 'Control_R',
+        'LControl': 'Control_L',
+        'ScrollLock': 'Scroll_Lock',
+        'LevelFive': 'ISO_Level5_Shift',
+        'AltGr': 'Alt_R',
+        'Meta': 'Meta_L',
+        'Super': 'Meta_L',
+        'Hyper': 'Hyper_L'
+    }
+
+    mods_to_indexes_x11 = {
+        "Shift": Xlib.X.ShiftMapIndex,
+        "Lock": Xlib.X.LockMapIndex,
+        "Control": Xlib.X.ControlMapIndex,
+        "Mod1": Xlib.X.Mod1MapIndex,
+        "Mod2": Xlib.X.Mod2MapIndex,
+        "Mod3": Xlib.X.Mod3MapIndex,
+        "Mod4": Xlib.X.Mod4MapIndex,
+        "Mod5": Xlib.X.Mod5MapIndex
+    }
+
+    if display and mod_name in mods_to_indexes_x11:
+
+      mods = display.get_modifier_mapping()
+      first_keycode = mods[mods_to_indexes_x11[mod_name]][0]
+      if first_keycode:
+        key = EV_KEY.codes[int(first_keycode) - 8]
+        keysym = display.keycode_to_keysym(first_keycode, 0)
+        for key in Xlib.XK.__dict__:
+          if key.startswith("XK") and Xlib.XK.__dict__[key] == keysym:
+            return key[3:]
+      else:
+        return mod_to_specific_keysym_name[mod_name]
+    elif display_wayland:
+
+        keymap = keyboard_state.get_keymap()
+        num_mods = keymap.num_mods()
+
+        for keycode in keymap:
+            keyboard_state_clean = keymap.state_new()
+            key_state = keyboard_state_clean.update_key(keycode, xkb.KeyDirection.XKB_KEY_DOWN)
+
+            num_layouts = keymap.num_layouts_for_key(keycode)
+            for layout in range(0, num_layouts):
+
+                if gnome_current_layout_index is not None and gnome_current_layout_index == layout:
+                    layout_is_active = True
+                else:
+                    layout_is_active = keyboard_state_clean.layout_index_is_active(layout, xkb.StateComponent.XKB_STATE_LAYOUT_EFFECTIVE)
+
+                if layout_is_active:
+                    for mod_index in range(0, num_mods):
+
+                        is_key_mod = key_state & xkb.StateComponent.XKB_STATE_MODS_DEPRESSED
+                        if is_key_mod:
+
+                            is_mod_active = keyboard_state_clean.mod_index_is_active(mod_index, xkb.StateComponent.XKB_STATE_MODS_DEPRESSED)
+                            if is_mod_active:
+                                if keymap.mod_get_name(mod_index) == mod_name:
+
+                                    keysyms = keymap.key_get_syms_by_level(keycode, layout, 0)
+
+                                    if len(keysyms) != 1:
+                                        continue
+
+                                    keysym_name = xkb.keysym_get_name(keysyms[0])
+                                    #log.info(mod_name)
+                                    #log.info(keycode)
+                                    #log.info(keysym_name)
+                                    return keysym_name
+
+    else:
+      return mod_to_specific_keysym_name[mod_name]
+
+def listen_keyboard_events():
+    """
+    Listen for keyboard events to track active modifier keys.
+    """
+    global active_modifiers, modifiers, keyboard
+
+    if keyboard is None:
+        log.warning("No keyboard detected; skipping keyboard listener.")
+        return
+
+    log.info("Listening to keyboard events...")
+
+    try:
+        fd_k = open('/dev/input/event' + str(keyboard), 'rb')
+        d_k = Device(fd_k)
+
+        for event in d_k.events():
+            if event.code in modifiers:
+
+                if event.value == 1:  # Key Pressed
+                    active_modifiers.add(event.code)
+                elif event.value == 0:  # Key Released
+                    active_modifiers.discard(event.code)
+
+                log.debug(f"Active modifiers: {active_modifiers}")
+
+    except device.EventsDroppedException:
+        for e in dev.sync(True):
+            pass
+    except Exception as e:
+        log.error(f"Error in listen_touchpad_events: {e}")
+
+# default are for unicode shortcuts + is loaded layout during start (BackSpace, Return - enter, asterisk, minus etc. can be found using xev)
+def set_defaults_keysym_name_associated_to_evdev_key_reflecting_current_layout():
+    global keysym_name_associated_to_evdev_key_reflecting_current_layout
+
+    keysym_name_associated_to_evdev_key_reflecting_current_layout = {
+         # unicode shortcut - for hex value
+        '0': '',
+        '1': '',
+        '2': '',
+        '3': '',
+        '4': '',
+        '5': '',
+        '6': '',
+        '7': '',
+        '8': '',
+        '9': '',
+        'a': '',
+        'b': '',
+        'c': '',
+        'd': '',
+        'e': '',
+        'f': '',
+        # unicode shortcut - start sequence
+        mod_name_to_specific_keysym_name('Shift'): '',
+        mod_name_to_specific_keysym_name('Control'): '',
+        'u': '',
+        # unicode shortcut - end sequence
+        'space': ''
+    }
+
+def get_keysym_name_associated_to_evdev_key_reflecting_current_layout():
+    global keysym_name_associated_to_evdev_key_reflecting_current_layout
+
+    # lazy initialization because of loading modifiers inside Shift & Control
+    if not keysym_name_associated_to_evdev_key_reflecting_current_layout:
+        set_defaults_keysym_name_associated_to_evdev_key_reflecting_current_layout()
+
+    return keysym_name_associated_to_evdev_key_reflecting_current_layout
+
+def load_evdev_key_for_wayland(char, keyboard_state):
+    global gnome_current_layout_index
+
+    keysym = xkb.keysym_from_name(char)
+
+    keymap = keyboard_state.get_keymap()
+    num_mods = keymap.num_mods()
+
+    for keycode in keymap:
+
+        num_layouts = keymap.num_layouts_for_key(keycode)
+        for layout in range(0, num_layouts):
+
+            num_levels = keymap.num_levels_for_key(keycode, layout)
+
+            for level in range(0, num_levels):
+                mod_masks_for_level = keymap.key_get_mods_for_level(keycode, layout, level)
+
+                if len(mod_masks_for_level) < 1:
+                    continue
+
+                keysyms = keymap.key_get_syms_by_level(keycode, layout, level)
+
+                if len(keysyms) != 1 or keysyms[0] != keysym:
+                    continue
+
+                for mod_mask_index in range(0, len(mod_masks_for_level)):
+
+                    mod_evdev_keys = []
+                    for mod_index in range(0, num_mods):
+
+                        if (mod_masks_for_level[mod_mask_index] & (1 << mod_index) == 0):
+                            continue
+
+                        mod_name = keymap.mod_get_name(mod_index)
+
+                        mod_as_evdev_key = load_evdev_key_for_wayland(mod_name_to_specific_keysym_name(mod_name), keyboard_state)
+                        mod_evdev_keys.append(mod_as_evdev_key)
+
+                        if not mod_as_evdev_key:
+                            continue
+
+                    if len(mod_evdev_keys) > 0:
+                        key = mod_evdev_keys + [EV_KEY.codes[int(keycode - 8)]]
+                    else:
+                        key = EV_KEY.codes[int(keycode - 8)]
+
+
+                    if gnome_current_layout_index is not None and gnome_current_layout_index == layout:
+                        layout_is_active = True
+                    else:
+                        layout_is_active = keyboard_state.layout_index_is_active(layout, xkb.StateComponent.XKB_STATE_LAYOUT_EFFECTIVE)
+
+                    enable_key(key)
+
+                    if layout_is_active:
+                        set_evdev_key_for_char(char, key)
+                        return key
+
+def wl_load_keymap_state():
+    global keyboard_state, keymap_loaded, udev
+
+    log.debug("Wayland will try to load keymap")
+
+    enabled_keys = len(enabled_evdev_keys)
+
+    for char in get_keysym_name_associated_to_evdev_key_reflecting_current_layout().copy():
+        load_evdev_key_for_wayland(char, keyboard_state)
+
+    # one or more changed to something not enabled yet to send using udev device? -> udev device has to be re-created
+    #
+    # BUT only reset if event is not first one - driver is starting and keymap is not loaded yet
+    if len(enabled_evdev_keys) > enabled_keys and keymap_loaded and udev:
+        reset_udev_device()
+
+    keymap_loaded = True
+
+    log.debug("Wayland loaded keymap succesfully")
+    log.debug(get_keysym_name_associated_to_evdev_key_reflecting_current_layout())
+
+
+def check_gnome_layout():
+    global stop_threads, gnome_current_layout, gnome_current_layout_index, keyboard_state, display_wayland_var, display_var
+
+    while not stop_threads:
+
+        mru_sources = gsettingsGet('org.gnome.desktop.input-sources', 'mru-sources')
+        try:
+          mru_sources_evaluated = ast.literal_eval(mru_sources.decode())
+        except:
+          mru_sources_evaluated = []
+
+        sources = gsettingsGet('org.gnome.desktop.input-sources', 'sources')
+        try:
+          sources_evaluated = ast.literal_eval(sources.decode())
+        except:
+          sources_evaluated = []
+
+        if len(mru_sources_evaluated) > 0:
+
+            mru_layout_index = sources_evaluated.index(mru_sources_evaluated[0])
+            mru_layout = mru_sources_evaluated[0][1].split("+")[0]
+
+            if display_wayland_var:
+                if keyboard_state and gnome_current_layout_index is not mru_layout_index:
+
+                    gnome_current_layout_index =  mru_layout_index
+                    gnome_current_layout = mru_layout
+                    wl_load_keymap_state()
+
+            elif gnome_current_layout != mru_layout:
+
+                    try:
+                        cmd = ['setxkbmap', mru_layout, '-display', display_var]
+
+                        log.debug(cmd)
+                        subprocess.call(cmd)
+
+                        gnome_current_layout = mru_layout
+                        gnome_current_layout_index =  mru_layout_index
+                    except:
+                        log.exception('setxkbmap set failed')
+
+        else:
+
+            current = gsettingsGet('org.gnome.desktop.input-sources', 'current')
+
+            current_evaluated = None
+            try:
+              current_evaluated = ast.literal_eval(current.decode().split(" ")[1])
+            except:
+              pass
+
+            if current_evaluated is not None and current_evaluated < len(sources_evaluated):
+                layout = sources_evaluated[current_evaluated][1].split("+")[0]
+
+                # first run, would be unnecessary duplicated loading x11 keymap because X.org server notify all clients at start about Mapping and setxkbmap would trigger new second notify
+                if gnome_current_layout == None:
+                    gnome_current_layout = layout
+
+                elif gnome_current_layout != layout:
+
+                    try:
+                        cmd = ['setxkbmap', layout, '-display', display_var]
+
+                        log.debug(cmd)
+                        subprocess.call(cmd)
+
+                        gnome_current_layout = layout
+                    except:
+                        log.exception('setxkbmap set failed')
+
+        sleep(0.5)
 
 
 def cleanup():
@@ -798,10 +1199,198 @@ stop_threads = False
 watch_manager = None
 event_notifier = None
 
+def isEvent(event):
+    if hasattr(event, "name") and hasattr(EV_KEY, event.name):
+        return True
+    else:
+        return False
+
+def isEventList(events):
+    if type(events) is list:
+        for event in events:
+            if not isEvent(event):
+                return False
+        return True
+    else:
+        return False
+
+def enable_key(key_or_key_combination, reset_udev = False):
+    global enabled_evdev_keys, dev, udev
+
+    enabled_keys_count = len(enabled_evdev_keys)
+
+    if isEvent(key_or_key_combination):
+      if key_or_key_combination not in enabled_evdev_keys:
+          enabled_evdev_keys.append(key_or_key_combination)
+          dev.enable(key_or_key_combination)
+
+    elif isEventList(key_or_key_combination):
+      for key in key_or_key_combination:
+        if key not in enabled_evdev_keys:
+          enabled_evdev_keys.append(key)
+          dev.enable(key)
+
+    # one or more changed to something not enabled yet to send using udev device? -> udev device has to be re-created
+    if len(enabled_evdev_keys) > enabled_keys_count and reset_udev:
+      reset_udev_device()
+
+def set_evdev_key_for_char(char, evdev_key):
+    global keysym_name_associated_to_evdev_key_reflecting_current_layout
+
+    # lazy initialization because of loading modifiers inside Shift & Control
+    if not keysym_name_associated_to_evdev_key_reflecting_current_layout:
+        set_defaults_keysym_name_associated_to_evdev_key_reflecting_current_layout()
+
+    keysym_name_associated_to_evdev_key_reflecting_current_layout[char] = evdev_key
+
+def load_evdev_key_for_x11(char):
+    global display, keysym_name_associated_to_evdev_key_reflecting_current_layout
+
+    keysym = Xlib.XK.string_to_keysym(char)
+
+    if keysym == 0:
+      return
+
+    keycode = display.keysym_to_keycode(keysym)
+    key = EV_KEY.codes[int(keycode) - 8]
+
+    # bare
+    if display.keycode_to_keysym(keycode, 0) == keysym:
+      pass
+    # shift
+    elif display.keycode_to_keysym(keycode, 1) == keysym:
+      key = [load_evdev_key_for_x11(mod_name_to_specific_keysym_name('Shift')), key]
+    # altgr
+    elif display.keycode_to_keysym(keycode, 2) == keysym:
+      key = [load_evdev_key_for_x11(mod_name_to_specific_keysym_name('AltGr')), key]
+    # shift altgr
+    elif display.keycode_to_keysym(keycode, 3) == keysym:
+      key = [load_evdev_key_for_x11(mod_name_to_specific_keysym_name('Shift')), load_evdev_key_for_x11(mod_name_to_specific_keysym_name('AltGr')), key]
+
+    set_evdev_key_for_char(char, key)
+
+    enable_key(key)
+
+    return key
+
+# necessary when are new keys enabled
+def reset_udev_device():
+    global dev, udev
+
+    log.info("Old device at {} ({})".format(udev.devnode, udev.syspath))
+    udev = dev.create_uinput_device()
+    log.info("New device at {} ({})".format(udev.devnode, udev.syspath))
+
+    # Sleep for a little bit so udev, libinput, Xorg, Wayland, ... all have had
+    # a chance to see the device and initialize it. Otherwise the event
+    # will be sent by the kernel but nothing is ready to listen to the
+    # device yet
+    sleep(0.5)
+
+def load_evdev_keys_for_x11():
+  global enabled_evdev_keys, keymap_loaded, udev
+
+  log.debug("X11 will try to load keymap")
+
+  enabled_keys_count = len(enabled_evdev_keys)
+
+  for char in get_keysym_name_associated_to_evdev_key_reflecting_current_layout().copy():
+    load_evdev_key_for_x11(char)
+
+  # one or more changed to something not enabled yet to send using udev device? -> udev device has to be re-created
+  #
+  # BUT only reset if event is not first one - driver is starting and keymap is not loaded yet
+  if len(enabled_evdev_keys) > enabled_keys_count and keymap_loaded and udev:
+    reset_udev_device()
+
+  keymap_loaded = True
+
+  log.debug("X11 loaded keymap succesfully")
+  log.debug(get_keysym_name_associated_to_evdev_key_reflecting_current_layout())
+
+def wl_keyboard_keymap_handler(keyboard, format_, fd, size):
+    global keyboard_state
+
+    keymap_data = mmap.mmap(
+       fd, size, prot=mmap.PROT_READ, flags=mmap.MAP_PRIVATE
+    )
+    xkb_context = xkb.Context()
+    keymap = xkb_context.keymap_new_from_buffer(keymap_data, length=size - 1)
+    keymap_data.close()
+
+    keyboard_state = keymap.state_new()
+
+    wl_load_keymap_state()
+
+def wl_registry_handler(registry, id_, interface, version):
+  log.debug(registry)
+  log.debug(id_)
+  log.debug(interface)
+  log.debug(version)
+  if interface == "wl_seat":
+    seat = registry.bind(id_, WlSeat, version)
+    keyboard = seat.get_keyboard()
+    keyboard.dispatcher["keymap"] = wl_keyboard_keymap_handler
+
+def load_keymap_listener_wayland():
+    global stop_threads, display_wayland_var, display_wayland
+
+    try:
+        display_wayland = Display(display_wayland_var)
+        display_wayland.connect()
+        registry = display_wayland.get_registry()
+        registry.dispatcher["global"] = wl_registry_handler
+        display_wayland.dispatch(block=True)
+        display_wayland.roundtrip()
+
+        while not stop_threads and display_wayland.dispatch(block=True) != -1:
+            pass
+    except:
+        log.exception("Wayland load keymap listener error. Exiting")
+        os.kill(os.getpid(), signal.SIGUSR1)
+
+def load_keymap_listener_x11():
+    global stop_threads, display, listening_touchpad_events_started
+
+    try:
+
+      while not stop_threads:
+
+        event = display.next_event()
+        if event.type == Xlib.X.MappingNotify and event.count > 0 and event.request == Xlib.X.MappingKeyboard:
+
+          if listening_touchpad_events_started or not keymap_loaded:
+            display.refresh_keyboard_mapping(event)
+            load_evdev_keys_for_x11()
+            #raise Xlib.error.ConnectionClosedError("fd") # testing purpose only
+    except:
+      log.exception("X11 load keymap listener error. Exiting")
+      os.kill(os.getpid(), signal.SIGUSR1)
+
 try:
 
     # Initialize the device
     initialize_virtual_device()
+
+    if xdg_session_type == "wayland":
+        t = threading.Thread(target=load_keymap_listener_wayland)
+        t.daemon = True
+        threads.append(t)
+        t.start()
+
+    if xdg_session_type == "x11" and display:
+
+        # when is the driver starting event is not received
+        load_evdev_keys_for_x11()
+
+        t = threading.Thread(target=load_keymap_listener_x11)
+        t.daemon = True
+        threads.append(t)
+        t.start()
+
+    # wait until is keymap loaded
+    while not keymap_loaded:
+        sleep(0.5)
 
     # Load config values
     load_all_config_values()
@@ -820,6 +1409,17 @@ try:
     event_notifier = AsyncNotifier(watch_manager)
 
     t = threading.Thread(target=check_dialpad_automatical_disable_or_idle_due_inactivity)
+    t.daemon = True
+    threads.append(t)
+    t.start()
+
+    if keyboard:
+        t = threading.Thread(target=listen_keyboard_events)
+        t.daemon = True
+        threads.append(t)
+        t.start()
+
+    t = threading.Thread(target=check_gnome_layout)
     t.daemon = True
     threads.append(t)
     t.start()
