@@ -159,6 +159,7 @@ while try_times > 0:
                 keyboard = line.split("event")[1]
                 keyboard = keyboard.split(" ")[0]
                 keyboard_detected = 2
+                log.info('Set keyboard id %s from %s', keyboard, line.strip())
 
               # Do not stop looking if touchpad and keyboard have been found
             # because more drivers can be installed
@@ -432,49 +433,47 @@ def get_active_window_title():
     log.error("Unsupported session type or display not connected.")
     return None
 
-def emulate_shortcuts(touch_input, event_code, active_modifiers):
+def emulate_shortcuts(touch_input, event_code, active_modifiers, duration_held=0):
     global suppress_app_specifics_shortcuts
 
-    # Get the active window title
+    # Get active window title
     window_title = get_active_window_title()
 
-    # Determine the app configuration based on the window title
-    #log.info(app_shortcuts)
-    app_name = None
-    if window_title:
-        app_name = next((app for app in app_shortcuts if app in window_title.lower()), None)
+    # Determine app-specific shortcuts
+    app_name = next((app for app in app_shortcuts if app in window_title.lower()), None) if window_title else None
+    shortcuts = app_shortcuts.get(app_name, app_shortcuts["none"])
 
-    # Use app-specific shortcuts if found; otherwise, fall back to default shortcuts
-    shortcuts = app_shortcuts[app_name] if app_name and not suppress_app_specifics_shortcuts else app_shortcuts["none"]
-
-    # Find a shortcut that matches both touch_input and active modifier(s)
     matched_shortcuts = shortcuts.get(touch_input, [])
-
-    # Ensure matched_shortcuts is always a list
     if not isinstance(matched_shortcuts, list):
         matched_shortcuts = [matched_shortcuts]
 
-    # Prioritize shortcuts that have a modifier
     prioritized_shortcuts = sorted(matched_shortcuts, key=lambda s: "modifier" not in s)
 
     for shortcut in prioritized_shortcuts:
         key_code = shortcut["key"]
         trigger_mode = shortcut.get("trigger", "release")
         modifier = shortcut.get("modifier")
+        required_duration = shortcut.get("duration", 0)  # Default to 0 (immediate)
 
-        # Check if modifiers match, prioritizing ones with modifiers
-        if (modifier and modifier in active_modifiers) or (not modifier and not any(active_modifiers)):
-            if trigger_mode == "immediate" and event_code:
-                send_key_event(key_code, press=True)
-                send_key_event(key_code, press=False)
-            elif trigger_mode == "release" and not event_code:
-                send_key_event(key_code, press=True)
-                send_key_event(key_code, press=False)
+        # Ensure correct modifiers
+        if (modifier and modifier in active_modifiers) or (not modifier and not active_modifiers):
+            if duration_held >= required_duration:
+                if trigger_mode == "immediate" and event_code:
+                    send_key_event(key_code, press=True)
+                    send_key_event(key_code, press=False)
+                elif trigger_mode == "release" and not event_code:
+                    send_key_event(key_code, press=True)
+                    send_key_event(key_code, press=False)
 
-            log.info(f"Executing shortcut for {app_name if app_name else 'default'}: {key_code.name} with modifiers {modifier} and keyboard active modifiers {active_modifiers}")
-            return  # Stop after executing the first valid shortcut
+                log.info(f"Executed shortcut: {key_code.name} with modifier {modifier} (Held for {duration_held:.2f}s)")
+                return  # Stop after first valid shortcut
+            else:
+                #log.info(trigger_mode)
+                #log.info(event_code)
+                if (trigger_mode == "immediate" and not event_code) or (trigger_mode == "release" and not event_code):
+                    log.info(f"Shortcut {key_code.name} requires {required_duration}s, but was held for {duration_held:.2f}s")
 
-    log.info(f"No shortcut mapped for touch input: {touch_input} and keyboard active modifiers {active_modifiers}")
+    #log.info(f"No valid shortcut mapped for touch input: {touch_input} with modifiers {active_modifiers}")
 
 def send_key_event(key_code, press=True):
     global uinput_device
@@ -657,6 +656,9 @@ def set_touchpad_prop_send_events(value):
     except:
         getting_device_via_synclient_status_failure_count+=1
 
+# Store key press start times
+key_press_times = {}
+
 def listen_touchpad_events():
     global slices_count, activation_time, last_event_time, dialpad, active_modifiers
 
@@ -693,6 +695,7 @@ def listen_touchpad_events():
                 # Handle finger detection
                 if event.matches(EV_KEY.BTN_TOOL_FINGER):
                     if event.value == 1:  # Finger down
+                        key_press_times[event.code] = time()
                         finger_detected = True
                         touch_start_time = time()  # Record the touch start time
                         within_top_right_icon = False  # Reset the flag
@@ -709,8 +712,9 @@ def listen_touchpad_events():
                         # Reset touch coordinates
                         touch_x, touch_y = None, None
 
+                        duration_held = time() - key_press_times.get(event.code, 0)
                         if center_button_triggered:
-                            emulate_shortcuts("center", event.value, active_modifiers)
+                            emulate_shortcuts("center", event.value, active_modifiers, duration_held)
                             center_button_triggered = False
                         # Re-enable tap-to-click
                         if tap_disabled:

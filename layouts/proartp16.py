@@ -11,8 +11,8 @@ circle_center_y = 573
 app_shortcuts = {
     "code": {
         "center": [
-          {"key": EV_KEY.KEY_MUTE, "trigger": "release"},
-          {"key": EV_KEY.KEY_MUTE, "trigger": "release", "modifier": EV_KEY.KEY_LEFTSHIFT}
+          {"key": EV_KEY.KEY_MUTE, "trigger": "release", "duration": 1},
+          {"key": EV_KEY.KEY_MUTE, "trigger": "release", "modifier": EV_KEY.KEY_LEFTSHIFT},
         ],
         "clockwise": [
           {"key": EV_KEY.KEY_VOLUMEUP, "trigger": "immediate"},
