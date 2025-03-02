@@ -385,8 +385,7 @@ def get_active_window_title():
     log.error("Unsupported session type or display not connected.")
     return None
 
-# Function to emulate shortcuts based on the current app
-def emulate_shortcuts(touch_input):
+def emulate_shortcuts(touch_input, event_code):
     global suppress_app_specifics_shortcuts
 
     # Get the active window title
@@ -404,14 +403,22 @@ def emulate_shortcuts(touch_input):
     shortcut = shortcuts.get(touch_input, None)
 
     if shortcut:
-        # Execute the shortcut
-        log.info(f"Executing shortcut for {'default' if not app_name else app_name}: {shortcut['key'].name}")
-        send_key_event(shortcut["key"])
+        key_code = shortcut["key"]
+        trigger_mode = shortcut.get("trigger", "release")  # Load trigger mode per shortcut
+
+        if trigger_mode == "immediate" and event_code:
+            send_key_event(key_code, press=True)
+            send_key_event(key_code, press=False)
+        if trigger_mode == "release" and not event_code:
+            send_key_event(key_code, press=True)
+            send_key_event(key_code, press=False)
+
+        log.info(f"Executing shortcut for {'default' if not app_name else app_name}: {key_code.name} with trigger mode: {trigger_mode}")
     else:
         log.info(f"No shortcut mapped for touch input: {touch_input} in {'default' if not app_name else app_name}")
 
-# Function to send key events using the initialized virtual device
-def send_key_event(key_code):
+
+def send_key_event(key_code, press=True):
     global uinput_device
 
     if not uinput_device:
@@ -419,14 +426,12 @@ def send_key_event(key_code):
         return
 
     try:
-        # Send key press and release events
+        event_value = 1 if press else 0  # 1 for key press, 0 for key release
         uinput_device.send_events([
-            InputEvent(key_code, 1),  # Key press
-            InputEvent(EV_SYN.SYN_REPORT, 0),  # Sync event
-            InputEvent(key_code, 0),  # Key release
+            InputEvent(key_code, event_value),
             InputEvent(EV_SYN.SYN_REPORT, 0)  # Sync event
         ])
-        log.info(f"Sent key event: {key_code.name}")
+        log.info(f"Sent key {'press' if press else 'release'} event: {key_code.name}")
     except Exception as e:
         log.error(f"Error sending key event: {e}")
 
@@ -645,7 +650,10 @@ def listen_touchpad_events():
                         log.debug("Finger lifted.")
                         # Reset touch coordinates
                         touch_x, touch_y = None, None
-                        center_button_triggered = False
+
+                        if center_button_triggered:
+                            emulate_shortcuts("center", event.value)
+                            center_button_triggered = False
                         # Re-enable tap-to-click
                         if tap_disabled:
                             set_touchpad_prop_send_events(1)
@@ -699,7 +707,7 @@ def listen_touchpad_events():
                             if not center_button_triggered:
                                 log.debug("Touch detected in center button area.")
                                 # Trigger the center button shortcut
-                                emulate_shortcuts("center")
+                                emulate_shortcuts("center", event.value)
                                 center_button_triggered = True  # Set flag to indicate the button has been pressed
                                 icon_activated = True  # Ensure it only triggers once per touch
                         else:
@@ -716,7 +724,7 @@ def listen_touchpad_events():
                                     direction = "clockwise" if (current_slice - last_slice) % slices_count == 1 else "counterclockwise"
                                     log.debug(f"Detected circular motion: {direction}")
                                     # Trigger rotation logic based on the direction
-                                    emulate_shortcuts(direction)
+                                    emulate_shortcuts(direction, event.value)
                                 last_slice = current_slice
                     else:
                         pass
