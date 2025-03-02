@@ -78,7 +78,7 @@ $ bash install_service.sh
 or for NixOS you can use flakes for the installation of this driver.
 
 > [!IMPORTANT]
-> In case the layout isn't provided, the "proart16" DialPad layout is used.
+> In case the layout isn't provided, the "proartp16" DialPad layout is used.
 > The default value for runtimeDir is `/run/usr/1000/`, for waylandDisplay is `wayland-0` and wayland is `true`.
 
 <details>
