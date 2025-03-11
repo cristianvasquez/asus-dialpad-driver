@@ -87,7 +87,7 @@ in {
         Restart = "on-failure";
         RestartSec = 1;
         TimeoutSec = 5;
-        WorkingDirectory = "${defaultPackage}";
+        WorkingDirectory = "${defaultPackage}/share/asus-dialpad-driver";
         Environment = [
           ''XDG_SESSION_TYPE=${if cfg.wayland then "wayland" else "x11"}''
           ''XDG_RUNTIME_DIR=${cfg.runtimeDir}''
