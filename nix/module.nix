@@ -121,9 +121,10 @@ in {
         TimeoutSec = 5;
         WorkingDirectory = "${cfg.package}/share/asus-dialpad-driver";
         Environment = [
-          ''XDG_SESSION_TYPE=${if cfg.wayland then "wayland" else "x11"}''
-          ''XDG_RUNTIME_DIR=${cfg.runtimeDir}''
-          ''WAYLAND_DISPLAY=${cfg.waylandDisplay}''
+          "XDG_SESSION_TYPE=${if cfg.wayland then "wayland" else "x11"}"
+          "XDG_RUNTIME_DIR=${cfg.runtimeDir}"
+          "WAYLAND_DISPLAY=${cfg.waylandDisplay}"
+          "LOG=WARNING"
         ];
       };
     };
