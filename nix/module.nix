@@ -22,7 +22,7 @@ in {
 
     layout = lib.mkOption {
       type = lib.types.str;
-      default = "proart16";
+      default = "proartp16";
       description = "The layout identifier for the DialPad driver (e.g. proart16). This value is required.";
     };
 
