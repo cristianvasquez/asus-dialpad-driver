@@ -3,8 +3,6 @@ inputs: { config, lib, pkgs, ... }:
 
 let
   cfg = config.services.asus-dialpad-driver;
-  defaultPackage = inputs.self.packages.${pkgs.system}.default;
-
   # Function to convert configuration options to string
   toConfigFile = cfg: builtins.concatStringsSep "\n" (
     [ "[main]" ] ++ lib.attrsets.mapAttrsToList (key: value: "${key} = ${value}") cfg.config
@@ -15,6 +13,12 @@ let
 in {
   options.services.asus-dialpad-driver = {
     enable = lib.mkEnableOption "Enable the Asus DialPad Driver service.";
+
+    package = lib.mkOption {
+      type = lib.types.package;
+      default = inputs.self.packages.${pkgs.system}.default;
+      description = "The package to use for the Asus DialPad Driver.";
+    };
 
     layout = lib.mkOption {
       type = lib.types.str;
@@ -42,7 +46,7 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ defaultPackage ];
+    environment.systemPackages = [ cfg.package ];
 
     # Ensure the writable directories exists
     systemd.tmpfiles.rules = [
@@ -81,13 +85,13 @@ in {
       startLimitIntervalSec=300;
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${defaultPackage}/share/asus-dialpad-driver/dialpad.py ${cfg.layout}";
+        ExecStart = "${cfg.package}/share/asus-dialpad-driver/dialpad.py ${cfg.layout}";
         StandardOutput = null;
         StandardError = null;
         Restart = "on-failure";
         RestartSec = 1;
         TimeoutSec = 5;
-        WorkingDirectory = "${defaultPackage}/share/asus-dialpad-driver";
+        WorkingDirectory = "${cfg.package}/share/asus-dialpad-driver";
         Environment = [
           ''XDG_SESSION_TYPE=${if cfg.wayland then "wayland" else "x11"}''
           ''XDG_RUNTIME_DIR=${cfg.runtimeDir}''
