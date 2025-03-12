@@ -49,13 +49,18 @@ python311Packages.buildPythonPackage {
     mkdir -p $out/share/asus-dialpad-driver
 
     # Copy the driver script
-    cp dialpad.py $out/share/asus-dialpad-driver/
+    install -Dm755 dialpad.py $out/share/asus-dialpad-driver/dialpad.py
 
     # Copy layouts directory if it exists, and remove __pycache__ if present
     if [ -d layouts ]; then
       cp -r layouts $out/share/asus-dialpad-driver/
       rm -rf $out/share/asus-dialpad-driver/layouts/__pycache__
     fi
+  '';
+
+  preFixup = ''
+    # Change line endings to Unix format
+    sed -i 's/\r$//' $out/share/asus-dialpad-driver/dialpad.py
   '';
 
   meta = {

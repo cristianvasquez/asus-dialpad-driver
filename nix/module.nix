@@ -3,22 +3,26 @@ inputs: { config, lib, pkgs, ... }:
 
 let
   cfg = config.services.asus-dialpad-driver;
-  defaultPackage = inputs.self.packages.${pkgs.system}.default;
 
-  # Function to convert configuration options to string
-  toConfigFile = cfg: builtins.concatStringsSep "\n" (
-    [ "[main]" ] ++ lib.attrsets.mapAttrsToList (key: value: "${key} = ${value}") cfg.config
-  );
-
-  # Writable directory for the config file
-  configDir = "/etc/asus-dialpad-driver/";
+  configFileDir = pkgs.writeTextFile {
+    name = "asus-dialpad-driver-config";
+    text = lib.generators.toINI {} cfg.config;
+    destination = "/dialpad_dev";
+  };
+  
 in {
   options.services.asus-dialpad-driver = {
     enable = lib.mkEnableOption "Enable the Asus DialPad Driver service.";
 
+    package = lib.mkOption {
+      type = lib.types.package;
+      default = inputs.self.packages.${pkgs.system}.default;
+      description = "The package to use for the Asus DialPad Driver.";
+    };
+
     layout = lib.mkOption {
       type = lib.types.str;
-      default = "proart16";
+      default = "proartp16";
       description = "The layout identifier for the DialPad driver (e.g. proart16). This value is required.";
     };
 
@@ -39,14 +43,42 @@ in {
       default = "/run/user/1000/";
       description = "The XDG_RUNTIME_DIR environment variable, specifying the runtime directory.";
     };
+
+    config = lib.mkOption {
+      type = with lib.types;
+        let
+          valueType = nullOr (oneOf [
+            bool
+            int
+            float
+            str
+            path
+            (attrsOf valueType)
+            (listOf valueType)
+          ]) // {
+            description = "Asus DialPad Driver configuration value";
+          };
+        in valueType;
+      example = {
+        main = {
+          enabled = false;
+          slices_count = 4;
+          disable_due_inactivity_time = 0;
+          touchpad_disables_dialpad = true;
+          activation_time = 1;
+          config_supress_app_specifics_shortcuts = 0;
+        };
+      };
+      default = {};
+      description = "Configuration options for the Asus DialPad Driver.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ defaultPackage ];
+    environment.systemPackages = [ cfg.package ];
 
     # Ensure the writable directories exists
     systemd.tmpfiles.rules = [
-      "d ${configDir} 0755 root root -"
       "d /var/log/asus-dialpad-driver 0755 root root -"
     ];
 
@@ -81,17 +113,18 @@ in {
       startLimitIntervalSec=300;
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${defaultPackage}/share/asus-dialpad-driver/dialpad.py ${cfg.layout}";
+        ExecStart = "${cfg.package}/share/asus-dialpad-driver/dialpad.py ${cfg.layout} ${configFileDir}/";
         StandardOutput = null;
         StandardError = null;
         Restart = "on-failure";
         RestartSec = 1;
         TimeoutSec = 5;
-        WorkingDirectory = "${defaultPackage}";
+        WorkingDirectory = "${cfg.package}/share/asus-dialpad-driver";
         Environment = [
-          ''XDG_SESSION_TYPE=${if cfg.wayland then "wayland" else "x11"}''
-          ''XDG_RUNTIME_DIR=${cfg.runtimeDir}''
-          ''WAYLAND_DISPLAY=${cfg.waylandDisplay}''
+          "XDG_SESSION_TYPE=${if cfg.wayland then "wayland" else "x11"}"
+          "XDG_RUNTIME_DIR=${cfg.runtimeDir}"
+          "WAYLAND_DISPLAY=${cfg.waylandDisplay}"
+          "LOG=WARNING"
         ];
       };
     };
