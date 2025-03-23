@@ -26,6 +26,12 @@ in {
       description = "The layout identifier for the DialPad driver (e.g. proart16). This value is required.";
     };
 
+    display = lib.mkOption {
+      type = lib.types.str;
+      default = ":0";
+      description = "The DISPLAY environment variable. Default is :0.";
+    };
+
     wayland = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -36,6 +42,13 @@ in {
       type = lib.types.str;
       default = "wayland-0";
       description = "The WAYLAND_DISPLAY environment variable. Default is wayland-0.";
+    };
+
+    ignoreWaylandDisplayEnv = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description =
+        "If true, WAYLAND_DISPLAY will not be set in the service environment.";
     };
 
     runtimeDir = lib.mkOption {
@@ -123,9 +136,10 @@ in {
         Environment = [
           "XDG_SESSION_TYPE=${if cfg.wayland then "wayland" else "x11"}"
           "XDG_RUNTIME_DIR=${cfg.runtimeDir}"
-          "WAYLAND_DISPLAY=${cfg.waylandDisplay}"
+          "DISPLAY=${cfg.display}"
           "LOG=WARNING"
-        ];
+        ] ++ lib.optional (!cfg.ignoreWaylandDisplayEnv)
+          "WAYLAND_DISPLAY=${cfg.waylandDisplay}";
       };
     };
 
