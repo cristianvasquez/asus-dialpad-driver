@@ -9,7 +9,7 @@ let
     text = lib.generators.toINI {} cfg.config;
     destination = "/dialpad_dev";
   };
-
+  
 in {
   options.services.asus-dialpad-driver = {
     enable = lib.mkEnableOption "Enable the Asus DialPad Driver service.";
@@ -119,7 +119,7 @@ in {
     # Load specific kernel modules
     boot.kernelModules = [ "uinput" "i2c-dev" ];
 
-    systemd.user.services.asus-dialpad-driver = {
+    systemd.services.asus-dialpad-driver = {
       description = "Asus DialPad Driver";
       wantedBy = [ "default.target" ];
       startLimitBurst=20;
