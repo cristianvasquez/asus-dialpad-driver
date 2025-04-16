@@ -12,7 +12,7 @@ if [[ $(type /usr/sbin/i2cdetect 2>/dev/null) ]] && [[ $(type /usr/sbin/i2ctrans
         exit 1
     fi
 
-    TOUCHPAD_WITH_DIALPAD_DETECTED=false
+    TOUCHPAD_WITH_DIALPAD_DETECTED=
     for INDEX in $INTERFACES; do
         echo -n "Testing interface $INDEX: "
 
@@ -37,10 +37,8 @@ if [[ $(type /usr/sbin/i2cdetect 2>/dev/null) ]] && [[ $(type /usr/sbin/i2ctrans
         fi
     done
 
-    if [ "$TOUCHPAD_WITH_DIALPAD_DETECTED" = true ]; then
-        echo "The detection was successful. Touchpad with DialPad found: $INDEX"
-    else
-        echo "The detection was not successful. Touchpad with DialPad not found"
+    if [ -z "$TOUCHPAD_WITH_DIALPAD_DETECTED" ]; then
+        echo "The detection was not successful. Touchpad with DialPad not found. Check whether your touchpad has integrated DialPad (e.g. on product websites) and then eventually create an issue here https://github.com/asus-linux-drivers/asus-dialpad-driver/issues/new/choose."
         exit 1
     fi
 else
