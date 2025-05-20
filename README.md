@@ -184,6 +184,7 @@ Layouts below are named by laptop models, but the name is not important. What is
 
 **How to start DialPad without systemd service?**
 
+- install in standard way using `bash install.sh` and answer no to the question about using `systemd`
 - layout name is required as first argument and as second argument can be optionally passed path to directory where will be autocreated config `dialpad_dev` (default is current working directory):
 
 ```
