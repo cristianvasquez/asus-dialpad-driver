@@ -187,7 +187,7 @@ Layouts below are named by laptop models, but the name is not important. What is
 - layout name is required as first argument and as second argument can be optionally passed path to directory where will be autocreated config `dialpad_dev` (default is current working directory):
 
 ```
-/usr/share/asus-dialpad-driver/.env/bin/python3 /usr/share/asus-dialpad-driver/dialpad.py <up5401ea|e210ma|..>
+/usr/share/asus-dialpad-driver/.env/bin/python3 /usr/share/asus-dialpad-driver/dialpad.py <asusvivobook16x|proartp16|..>
 ```
 
 **How to install the driver when is used pyenv for managing multiple Python versions?**
