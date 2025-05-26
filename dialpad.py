@@ -388,7 +388,7 @@ def get_window_kde_wayland_title(window_id):
         log.error("Error getting KDE window title: %s", e)
         return None
 
-def get_active_window_kde_wayland_title():
+def get_active_window_kde_wayland_title_using_qdbus():
     try:
         cmd = ['qdbus', 'org.kde.KWin', '/KWin', 'org.kde.KWin.activeWindow']
         output = subprocess.check_output(cmd).decode().strip()
@@ -398,6 +398,15 @@ def get_active_window_kde_wayland_title():
             return get_window_kde_wayland_title(window_id)
     except Exception as e:
         log.error("Error getting active KDE window title: %s", e)
+        return None
+
+def get_active_window_kde_wayland_title_using_kdotool():
+    try:
+        window_uuid = subprocess.check_output(['kdotool', 'getactivename']).decode().strip()
+        title = subprocess.check_output(['kdotool', 'getwindowname', window_uuid]).decode().strip()
+        return title
+    except Exception as e:
+        log.error("Error using kdotool to get window title: %s", e)
         return None
 
 def get_active_window_gnome_wayland_title():
@@ -422,7 +431,11 @@ def get_active_window_title():
             log.error("Error retrieving active window title (X11): %s", e)
             return None
     else:
-        kde_title = get_active_window_kde_wayland_title()
+        kde_title = get_active_window_kde_wayland_title_using_qdbus()
+        if kde_title:
+            return kde_title
+
+        kde_title = get_active_window_kde_wayland_title_using_kdotool()
         if kde_title:
             return kde_title
 
