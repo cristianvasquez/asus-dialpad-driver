@@ -389,6 +389,11 @@ def get_window_kde_wayland_title(window_id):
         return None
 
 def get_active_window_kde_wayland_title_using_qdbus():
+    global qdbus_failure_count, qdbus_max_failure_count
+
+    if qdbus_failure_count >= qdbus_max_failure_count:
+        return None
+
     try:
         cmd = ['qdbus', 'org.kde.KWin', '/KWin', 'org.kde.KWin.activeWindow']
         output = subprocess.check_output(cmd).decode().strip()
@@ -397,26 +402,39 @@ def get_active_window_kde_wayland_title_using_qdbus():
             window_id = match.group(1)
             return get_window_kde_wayland_title(window_id)
     except Exception as e:
-        log.error("Error getting active KDE window title: %s", e)
+        qdbus_failure_count += 1
+        log.error("QDbus KDE title fetch failed (%d/%d): %s", qdbus_failure_count, qdbus_max_failure_count, e)
         return None
 
 def get_active_window_kde_wayland_title_using_kdotool():
+    global kdotool_failure_count, kdotool_max_failure_count
+
+    if kdotool_failure_count >= kdotool_max_failure_count:
+        return None
+
     try:
         window_uuid = subprocess.check_output(['kdotool', 'getactivename']).decode().strip()
         title = subprocess.check_output(['kdotool', 'getwindowname', window_uuid]).decode().strip()
         return title
     except Exception as e:
-        log.error("Error using kdotool to get window title: %s", e)
+        kdotool_failure_count += 1
+        log.error("Kdotool title fetch failed (%d/%d): %s", kdotool_failure_count, kdotool_max_failure_count, e)
         return None
 
 def get_active_window_gnome_wayland_title():
+    global gnome_failure_count, gnome_max_failure_count
+
+    if gnome_failure_count >= gnome_max_failure_count:
+        return None
+
     try:
         session_bus = dbus.SessionBus()
         shell = session_bus.get_object('org.gnome.Shell', '/org/gnome/Shell')
         active_window = shell.Get('org.gnome.Shell', 'focusWindow')
         return active_window.get('title', None)
     except Exception as e:
-        log.error("Error getting active GNOME Wayland window title: %s", e)
+        gnome_failure_count += 1
+        log.error("GNOME window title fetch failed (%d/%d): %s", gnome_failure_count, gnome_max_failure_count, e)
         return None
 
 def get_active_window_title():
@@ -581,16 +599,22 @@ def check_dialpad_automatical_disable_or_idle_due_inactivity():
 
 
 gsettings_failure_count = 0
-gsettings_max_failure_count = 3
+gsettings_max_failure_count = 1
 
 qdbus_failure_count = 0
-qdbus_max_failure_count = 3
+qdbus_max_failure_count = 1
 
-getting_device_via_xinput_status_failure_count = 0
-getting_device_via_xinput_status_max_failure_count = 3
+kdotool_failure_count = 0
+kdotool_max_failure_count = 1
 
-getting_device_via_synclient_status_failure_count = 0
-getting_device_via_synclient_status_max_failure_count = 3
+gnome_failure_count = 0
+gnome_max_failure_count = 1
+
+xinput_failure_count = 0
+xinput_max_failure_count = 1
+
+synclient_status_failure_count = 0
+synclient_status_max_failure_count = 1
 
 def qdbusSet(cmd):
     global qdbus_failure_count, qdbus_max_failure_count, touchpad
@@ -639,7 +663,7 @@ def gsettingsSetTouchpadSendEvents(value):
     gsettingsSet('org.gnome.desktop.peripherals.touchpad', 'send-events', 'enabled' if value else 'disabled')
 
 def set_touchpad_prop_send_events(value):
-    global touchpad_name, gsettings_failure_count, gsettings_max_failure_count, qdbus_max_failure_count, qdbus_failure_count, getting_device_via_xinput_status_failure_count, getting_device_via_xinput_status_max_failure_count, getting_device_via_synclient_status_failure_count, getting_device_via_synclient_status_max_failure_count
+    global touchpad_name, gsettings_failure_count, gsettings_max_failure_count, qdbus_max_failure_count, qdbus_failure_count, xinput_failure_count, xinput_max_failure_count, synclient_status_failure_count, synclient_status_max_failure_count
 
     # 1. priority - gsettings (gnome) or qdbus (kde)
     if gsettings_failure_count < gsettings_max_failure_count:
@@ -648,8 +672,8 @@ def set_touchpad_prop_send_events(value):
         qdbusSetTouchpadEnabled(value)
 
     # 2. priority - xinput
-    if getting_device_via_xinput_status_failure_count > getting_device_via_xinput_status_max_failure_count:
-        log.debug('Setting libinput Send Events via xinput failed more than: "%s" times so is not trying anymore', getting_device_via_xinput_status_max_failure_count)
+    if xinput_failure_count > xinput_max_failure_count:
+        log.debug('Setting libinput Send Events via xinput failed more than: "%s" times so is not trying anymore', xinput_max_failure_count)
     else:
         try:
             cmd = ["xinput", "enable" if value else "disable", touchpad_name]
@@ -657,19 +681,19 @@ def set_touchpad_prop_send_events(value):
             subprocess.call(cmd)
             return
         except:
-            getting_device_via_xinput_status_failure_count+=1
+            xinput_failure_count+=1
             log.error('Setting libinput Send Events via xinput failed')
 
     # 3. priority - synclient
-    if getting_device_via_synclient_status_failure_count > getting_device_via_synclient_status_max_failure_count:
-        log.debug('Setting libinput Send Events via synclient failed more than: "%s" times so is not trying anymore', getting_device_via_xinput_status_max_failure_count)
+    if synclient_status_failure_count > synclient_status_max_failure_count:
+        log.debug('Setting libinput Send Events via synclient failed more than: "%s" times so is not trying anymore', xinput_max_failure_count)
     try:
         cmd = ["synclient", "TouchpadOff=" + str(value)]
         log.debug(cmd)
         subprocess.call(cmd)
         return
     except:
-        getting_device_via_synclient_status_failure_count+=1
+        synclient_status_failure_count+=1
 
 # Store key press start times
 key_press_times = {}
