@@ -36,7 +36,7 @@ If you find this project useful, please do not forget to give it a [![GitHub sta
 ```
 $ git clone https://github.com/jinliu/kdotool
 $ cd kdotool
-$ meson build # and make binary target/debug/kdotool globally available
+$ cargo build # and make binary target/debug/kdotool globally available
 ```
 
 ## Installation
