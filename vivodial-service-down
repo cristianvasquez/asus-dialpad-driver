@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+# ASUS Vivobook Dialpad Service - Stop
+# Simple shutdown script for the dialpad driver
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PIDFILE="$SCRIPT_DIR/.vivodial.pid"
+
+# Check if PID file exists
+if [ ! -f "$PIDFILE" ]; then
+    echo "Vivodial service is not running (no PID file found)"
+    exit 1
+fi
+
+# Read PID
+PID=$(cat "$PIDFILE")
+
+# Check if process is running
+if ! kill -0 "$PID" 2>/dev/null; then
+    echo "Vivodial service is not running (process $PID not found)"
+    rm -f "$PIDFILE"
+    exit 1
+fi
+
+# Stop the service
+echo "Stopping Vivodial service (PID: $PID)..."
+kill "$PID"
+
+# Wait for process to stop
+for i in {1..10}; do
+    if ! kill -0 "$PID" 2>/dev/null; then
+        echo "Vivodial service stopped successfully"
+        rm -f "$PIDFILE"
+        exit 0
+    fi
+    sleep 0.5
+done
+
+# Force kill if still running
+echo "Process still running, force killing..."
+kill -9 "$PID" 2>/dev/null || true
+rm -f "$PIDFILE"
+echo "Vivodial service force stopped"

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+# ASUS Vivobook Dialpad Service - Start
+# Simple startup script for the dialpad driver
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIALPAD_SCRIPT="$SCRIPT_DIR/dialpad.py"
+LAYOUT="asusvivobook16x"
+PIDFILE="$SCRIPT_DIR/.vivodial.pid"
+LOGFILE="$SCRIPT_DIR/.vivodial.log"
+
+# Check if already running
+if [ -f "$PIDFILE" ]; then
+    PID=$(cat "$PIDFILE")
+    if kill -0 "$PID" 2>/dev/null; then
+        echo "Vivodial service is already running (PID: $PID)"
+        exit 1
+    else
+        echo "Removing stale PID file"
+        rm -f "$PIDFILE"
+    fi
+fi
+
+# Check if dialpad.py exists
+if [ ! -f "$DIALPAD_SCRIPT" ]; then
+    echo "Error: dialpad.py not found at $DIALPAD_SCRIPT"
+    exit 1
+fi
+
+# Start the service in background
+echo "Starting Vivodial service..."
+nohup uv run python "$DIALPAD_SCRIPT" "$LAYOUT" "$SCRIPT_DIR" > "$LOGFILE" 2>&1 &
+PID=$!
+
+# Save PID
+echo "$PID" > "$PIDFILE"
+
+echo "Vivodial service started (PID: $PID)"
+echo "Log file: $LOGFILE"
+echo "Use 'vivodial-service-down' to stop"

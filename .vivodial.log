@@ -1,0 +1,37 @@
+2025-07-01 21:15:41,113 INFO Wayland session detected and connected.
+2025-07-01 21:15:41,114 INFO Detecting keyboard from string: "N: Name="AT Translated Set 2 keyboard""
+2025-07-01 21:15:41,115 INFO Set keyboard id 2 from H: Handlers=sysrq kbd event2 leds
+2025-07-01 21:15:41,115 INFO Detecting touchpad from string: "N: Name="ASUE1A01:00 04F3:31D4 Touchpad""
+2025-07-01 21:15:41,115 INFO Set touchpad device id 1 from S: Sysfs=/devices/platform/AMDI0010:03/i2c-1/i2c-ASUE1A01:00/0018:04F3:31D4.0001/input/input7
+2025-07-01 21:15:41,115 INFO Set touchpad id 5 from H: Handlers=mouse1 event5
+2025-07-01 21:15:41,115 INFO Touchpad min-max: x 0-3946, y 0-2606
+2025-07-01 21:15:41,117 INFO Virtual device initialized successfully.
+2025-07-01 21:15:42,622 INFO Listening to keyboard events...
+2025-07-01 21:15:42,622 INFO Listening to touchpad events...
+2025-07-01 21:15:52,253 INFO Top-right icon held for the required duration.
+2025-07-01 21:15:52,254 INFO Setting up for config file key: "enabled" with value: "True"
+2025-07-01 21:15:52,355 INFO Toggling top-right icon: Enabling
+qdbus: could not find a Qt installation of ''
+WARNING: running xinput against an Xwayland server. See the xinput man page for details.
+unable to find device ASUE1A01:00 04F3:31D4 Touchpad
+qdbus: could not find a Qt installation of ''
+2025-07-01 21:15:55,487 ERROR QDbus KDE title fetch failed (1/1): Command '['qdbus', 'org.kde.KWin', '/KWin', 'org.kde.KWin.activeWindow']' returned non-zero exit status 1.
+2025-07-01 21:15:55,488 ERROR Kdotool title fetch failed (1/1): [Errno 2] No such file or directory: 'kdotool'
+2025-07-01 21:15:55,488 ERROR GNOME window title fetch failed (1/1): name 'dbus' is not defined
+2025-07-01 21:15:55,488 ERROR Unsupported session type or display not connected.
+2025-07-01 21:15:55,488 INFO Sent key press event: KEY_VOLUMEDOWN
+2025-07-01 21:15:55,488 INFO Sent key release event: KEY_VOLUMEDOWN
+2025-07-01 21:15:55,488 INFO Executed shortcut: KEY_VOLUMEDOWN with modifier None (Held for 0.00s)
+2025-07-01 21:15:55,678 ERROR Unsupported session type or display not connected.
+2025-07-01 21:15:55,679 INFO Sent key press event: KEY_VOLUMEDOWN
+2025-07-01 21:15:55,679 INFO Sent key release event: KEY_VOLUMEDOWN
+2025-07-01 21:15:55,679 INFO Executed shortcut: KEY_VOLUMEDOWN with modifier None (Held for 0.00s)
+2025-07-01 21:15:55,796 ERROR Unsupported session type or display not connected.
+2025-07-01 21:15:55,796 INFO Sent key press event: KEY_VOLUMEDOWN
+2025-07-01 21:15:55,796 INFO Sent key release event: KEY_VOLUMEDOWN
+2025-07-01 21:15:55,796 INFO Executed shortcut: KEY_VOLUMEDOWN with modifier None (Held for 0.00s)
+WARNING: running xinput against an Xwayland server. See the xinput man page for details.
+unable to find device ASUE1A01:00 04F3:31D4 Touchpad
+2025-07-01 21:15:57,709 INFO Top-right icon held for the required duration.
+2025-07-01 21:15:57,710 INFO Setting up for config file key: "enabled" with value: "False"
+2025-07-01 21:15:57,810 INFO Toggling top-right icon: Disabling
